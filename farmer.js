@@ -79,7 +79,7 @@
 
         #dq-header { background: var(--dq-header-bg); padding:14px 18px; font-weight:600; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--dq-border); cursor:grab; user-select:none; }
         .dq-header-icons { display: flex; align-items: center; gap: 12px; }
-        .dq-icon-btn { cursor:pointer; color: var(--dq-text-muted); font-size:16px; padding:4px; transition:color 0.2s, transform 0.1s; display: flex; align-items: center; justify-content: center; }
+        .dq-icon-btn { opacity: 0.7; cursor:pointer; color: var(--dq-text-muted); font-size:16px; padding:4px; transition:color 0.2s, transform 0.1s; display: flex; align-items: center; justify-content: center; }
         .dq-icon-btn:hover { color: var(--dq-text); transform: scale(1.1); }
         #dq-close:hover { color:#fa777c !important; }
         
@@ -94,12 +94,14 @@
         
         .dq-btn { background: var(--dq-btn-gradient); color:white; border:none; padding:11px; border-radius:6px; cursor:pointer; font-weight:600; width:100%; transition:all 0.2s ease-in-out; box-shadow:0 2px 4px rgba(0,0,0,0.15); }
         .dq-btn:hover { background: var(--dq-btn-hover-gradient); transform:translateY(-1px); } 
-        .dq-btn.dq-stop { background: linear-gradient(135deg, #ff7376, #ed4245); }
+        .dq-btn.dq-stop { background: linear-gradient(135deg, #ff7376, #ed4245) !important; }
         .dq-btn:disabled { background: var(--dq-cat-bg) !important; cursor:not-allowed; color: var(--dq-text-muted) !important; box-shadow:none; border:1px solid var(--dq-border); }
         
-        #dq-list, #dq-logs { background: var(--dq-panel-bg); padding:10px; border-radius:8px; font-size:13px; border:1px solid var(--dq-border); }
-        #dq-list { max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
-        #dq-logs { height:110px; overflow-y:auto; word-wrap:break-word; font-family:"Consolas",monospace; color: var(--dq-text); line-height:1.4; opacity: 0.85; }
+        #dq-list, #dq-logs { background: var(--dq-panel-bg); padding:10px; border-radius:8px; font-size:13px; }
+        #dq-list { max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; border:1px solid var(--dq-border); }
+        
+        /* Rahmen UND Textfarbe passen sich jetzt dynamisch der Akzentfarbe an */
+        #dq-logs { height:110px; overflow-y:auto; word-wrap:break-word; font-family:"Consolas",monospace; color: var(--dq-accent); line-height:1.4; opacity: 0.95; border:1px solid var(--dq-accent); transition: border-color 0.3s, color 0.3s; }
         
         .dq-cat { margin-bottom:4px; background: var(--dq-cat-bg); border-radius:6px; padding:6px; border:1px solid var(--dq-border); }
         .dq-cat-items { padding:6px 6px 4px 22px; display:flex; flex-direction:column; gap:6px; border-top:1px solid var(--dq-border); margin-top:4px; }
@@ -183,8 +185,6 @@
     const questListEl = document.getElementById('dq-list');
     const statusEl = document.getElementById('dq-status');
     const startBtn = document.getElementById('dq-start');
-    const globalProgress = document.getElementById('dq-global-progress');
-    const globalBar = document.getElementById('dq-global-bar');
     const guiContainer = gui.firstElementChild;
 
     const updateAccent = (hex) => {
@@ -267,7 +267,11 @@
 
     function log(msg, type = "info") {
         const div = document.createElement('div');
-        div.style.color = type === 'error' ? '#f23f43' : type === 'success' ? '#23a55a' : type === 'warn' ? '#f0b232' : 'var(--dq-text)';
+        // Farben für Warnungen/Fehler bleiben zur Lesbarkeit erhalten, normale Logs nutzen die Akzentfarbe über CSS
+        if (type === 'error') div.style.color = '#f23f43';
+        else if (type === 'warn') div.style.color = '#f0b232';
+        else if (type === 'success') div.style.color = '#23a55a';
+        
         div.style.marginBottom = '2px';
         div.textContent = `[${new Date().toLocaleTimeString('de-DE', {hour12:false})}] ${msg}`;
         logsEl.appendChild(div);
@@ -427,6 +431,43 @@
         }
     };
 
+    /* HIER GEÄNDERT: Verarbeitet jetzt alle ausgewählten Quests zeitgleich (parallel) */
+    startBtn.addEventListener('click', async () => {
+        if (isRunning) {
+            isRunning = false;
+            startBtn.textContent = "Ausgewählte starten";
+            startBtn.classList.remove('dq-stop');
+            log("Farming manuell gestoppt.", "warn");
+            statusEl.textContent = "Gestoppt.";
+        } else {
+            const selectedChecked = Array.from(document.querySelectorAll('.dq-quest-cb:checked')).map(cb => cb.value);
+            if (selectedChecked.length === 0) return log("Keine Quests ausgewählt!", "warn");
+
+            isRunning = true;
+            startBtn.textContent = "Farming stoppen";
+            startBtn.classList.add('dq-stop');
+            statusEl.textContent = "Multi-Farming läuft...";
+            log(`Parallel-Farming für ${selectedChecked.length} Missionen gestartet...`, "success");
+
+            // Erstelle die parallel laufenden Versprechen für alle ausgewählten Quests
+            const activePromises = selectedChecked.map(qId => {
+                const activeQuest = quests.find(q => q.id === qId);
+                return activeQuest ? startQuest(activeQuest) : Promise.resolve();
+            });
+
+            // Warte, bis alle parallel gestarteten Quests beendet sind
+            await Promise.all(activePromises);
+
+            if (isRunning) {
+                isRunning = false;
+                startBtn.textContent = "Ausgewählte starten";
+                startBtn.classList.remove('dq-stop');
+                statusEl.textContent = "Alle Quests gleichzeitig fertig!";
+                log("Paralleles Farming beendet.", "success");
+            }
+        }
+    });
+
     async function startQuest(quest) {
         const qName = quest.config?.messages?.questName ?? quest.config?.application?.name ?? "Mission";
         
@@ -450,7 +491,7 @@
         const secReq = tasks[tName].target ?? 900;
         let secDone = quest.userStatus?.progress?.[tName]?.value ?? 0;
 
-        log(`[${qName}] Gestartet!`, "info"); updateProg(quest.id, secDone, secReq);
+        log(`[${qName}] Gestartet!`); updateProg(quest.id, secDone, secReq);
 
         if (tName === "WATCH_VIDEO" || tName === "WATCH_VIDEO_ON_MOBILE") {
             while (secDone < secReq && isRunning) {
