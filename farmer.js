@@ -1,8 +1,32 @@
 (async () => {
-    if (document.getElementById("discord-quest-gui")) return;
+    // --- SICHERHEITS-CHECK FÜR LOCALSTORAGE & WINDOW ---
+    const safeLocalStorage = (() => {
+        try {
+            if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+                return window.localStorage;
+            }
+        } catch (e) {
+            // Falls der Zugriff im Browser blockiert ist
+        }
 
-    let activeTheme = 'dark';
-    let customAccentColor = '#5865f2';
+        // Fallback: In-Memory-Objekt, falls localStorage fehlt
+        const memoryStorage = {};
+        return {
+            getItem: (key) => (key in memoryStorage ? memoryStorage[key] : null),
+            setItem: (key, value) => { memoryStorage[key] = String(value); },
+            removeItem: (key) => { delete memoryStorage[key]; },
+            clear: () => { for (const key in memoryStorage) { delete memoryStorage[key]; } },
+            key: (index) => Object.keys(memoryStorage)[index] || null,
+            get length() { return Object.keys(memoryStorage).length; }
+        };
+    })();
+
+    if (typeof document === 'undefined' || document.getElementById("discord-quest-gui")) return;
+
+    // --- EINSTELLUNGEN SPEICHERN & LADEN ---
+    let activeTheme = safeLocalStorage.getItem('dq_theme') || 'glass'; // Standardmäßig Liquid Glass
+    let customAccentColor = safeLocalStorage.getItem('dq_accent_color') || '#5865f2'; // Standard lila Akzent
+    let webhookUrl = safeLocalStorage.getItem('dq_webhook_url') || '';
 
     const style = document.createElement('style');
     style.id = "dq-theme-styles";
@@ -21,28 +45,6 @@
             --dq-border: rgba(255,255,255,0.05);
             --dq-shadow: 0 12px 32px rgba(0,0,0,0.5);
             --dq-backdrop: none;
-        }
-
-        .theme-amoled {
-            --dq-bg: #000000;
-            --dq-header-bg: #000000;
-            --dq-text: #e3e5e8;
-            --dq-text-muted: #80848e;
-            --dq-panel-bg: #0a0a0a;
-            --dq-cat-bg: #111214;
-            --dq-border: rgba(255,255,255,0.08);
-            --dq-shadow: 0 8px 24px rgba(0,0,0,0.8);
-        }
-
-        .theme-white {
-            --dq-bg: #f2f3f5;
-            --dq-header-bg: linear-gradient(135deg, #e3e5e8, #f2f3f5);
-            --dq-text: #313338;
-            --dq-text-muted: #5c5e66;
-            --dq-panel-bg: #ffffff;
-            --dq-cat-bg: #ebedf0;
-            --dq-border: rgba(0,0,0,0.08);
-            --dq-shadow: 0 12px 32px rgba(0,0,0,0.15);
         }
 
         .theme-glass {
@@ -69,10 +71,11 @@
             transition: background 0.3s, border 0.3s, box-shadow 0.3s;
         }
 
+        /* Lila schimmernder rotierender Glow im Hintergrund */
         .theme-glass::before {
             content: '';
             position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(116,127,227,0.15) 0%, transparent 60%);
+            background: radial-gradient(circle, rgba(88, 101, 242, 0.15) 0%, transparent 60%);
             z-index: -1; animation: liquid-spin 12s infinite linear; pointer-events: none;
         }
         @keyframes liquid-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -87,7 +90,7 @@
         
         #dq-editor { background: var(--dq-panel-bg); border: 1px solid var(--dq-border); border-radius: 10px; padding: 12px; display: none; flex-direction: column; gap: 10px; }
         .dq-editor-title { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dq-text-muted); margin-bottom: 4px; }
-        .dq-theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+        .dq-theme-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
         .dq-theme-opt { background: var(--dq-cat-bg); border: 1px solid var(--dq-border); color: var(--dq-text); padding: 8px; border-radius: 6px; cursor: pointer; text-align: center; font-size: 12px; font-weight: 500; transition: all 0.2s; }
         .dq-theme-opt:hover { border-color: var(--dq-accent); }
         .dq-theme-opt.active { background: var(--dq-accent); color: #fff; border-color: var(--dq-accent); }
@@ -100,7 +103,6 @@
         #dq-list, #dq-logs { background: var(--dq-panel-bg); padding:10px; border-radius:8px; font-size:13px; }
         #dq-list { max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; border:1px solid var(--dq-border); }
         
-        /* Rahmen UND Textfarbe passen sich jetzt dynamisch der Akzentfarbe an */
         #dq-logs { height:110px; overflow-y:auto; word-wrap:break-word; font-family:"Consolas",monospace; color: var(--dq-accent); line-height:1.4; opacity: 0.95; border:1px solid var(--dq-accent); transition: border-color 0.3s, color 0.3s; }
         
         .dq-cat { margin-bottom:4px; background: var(--dq-cat-bg); border-radius:6px; padding:6px; border:1px solid var(--dq-border); }
@@ -108,6 +110,10 @@
         .dq-cb-lbl { display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; user-select:none; transition:color 0.2s; }
         .dq-cb-lbl:hover { color: var(--dq-text); }
         .dq-cb-lbl input { cursor:pointer; accent-color: var(--dq-accent); width:15px; height:15px; border-radius:4px; }
+
+        /* Webhook Input Styling */
+        .dq-input { background: var(--dq-bg); border: 1px solid var(--dq-border); color: var(--dq-text); padding: 8px; border-radius: 6px; font-size: 12px; width: 100%; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+        .dq-input:focus { border-color: var(--dq-accent); }
         
         .dq-progress-inner { height:100%; background: var(--dq-accent); transition:width 0.3s ease; }
         
@@ -124,7 +130,7 @@
     const gui = document.createElement('div');
     gui.id = "discord-quest-gui";
     gui.innerHTML = `
-        <div id="dq-gui">
+        <div id="dq-gui" class="${activeTheme !== 'dark' ? 'theme-' + activeTheme : ''}">
             <!-- Support Modal Overlay -->
             <div id="dq-support-modal">
                 <div class="dq-modal-content">
@@ -142,7 +148,7 @@
             <div id="dq-header">
                 <div style="display:flex; flex-direction:column;">
                     <span style="font-size:14px; letter-spacing:0.3px;">✨ Aether Quest Harvester</span>
-                    <span style="font-size:10px; color: var(--dq-text-muted); font-weight:normal; margin-top:2px; text-transform:uppercase; letter-spacing:0.5px;">v1 • Premium</span>
+                    <span style="font-size:10px; color: var(--dq-text-muted); font-weight:normal; margin-top:2px; text-transform:uppercase; letter-spacing:0.5px;">v1.2 • Premium</span>
                 </div>
                 <div class="dq-header-icons">
                     <span class="dq-icon-btn" id="dq-heart-btn" title="Support">❤️</span>
@@ -157,14 +163,16 @@
                 <div id="dq-editor">
                     <div class="dq-editor-title">Theme wählen</div>
                     <div class="dq-theme-grid">
-                        <div class="dq-theme-opt active" data-theme="dark">Discord Dark</div>
-                        <div class="dq-theme-opt" data-theme="white">Discord White</div>
-                        <div class="dq-theme-opt" data-theme="amoled">AMOLED Black</div>
                         <div class="dq-theme-opt" data-theme="glass">Liquid Glass</div>
                     </div>
                     <div id="dq-custom-color-sec" style="display:flex; align-items:center; justify-content:space-between; margin-top:4px; padding-top:8px; border-top:1px solid var(--dq-border);">
                         <span style="font-size:12px; font-weight:500;">Custom Accent Color</span>
-                        <input type="color" id="dq-accent-picker" value="#5865f2" style="border:none; padding:0; width:30px; height:24px; border-radius:4px; cursor:pointer; background:none;">
+                        <input type="color" id="dq-accent-picker" style="border:none; padding:0; width:30px; height:24px; border-radius:4px; cursor:pointer; background:none;">
+                    </div>
+                    <!-- Webhook Settings -->
+                    <div style="display:flex; flex-direction:column; gap:5px; margin-top:4px; padding-top:8px; border-top:1px solid var(--dq-border);">
+                        <span style="font-size:12px; font-weight:500; color: var(--dq-text-muted);">DISCORD WEBHOOK URL</span>
+                        <input type="text" id="dq-webhook-input" class="dq-input" placeholder="https://discord.com/api/webhooks/..." value="${webhookUrl}">
                     </div>
                 </div>
 
@@ -187,8 +195,12 @@
     const startBtn = document.getElementById('dq-start');
     const guiContainer = gui.firstElementChild;
 
-    const updateAccent = (hex) => {
+    // --- ACCENT FARBE AKTUALISIEREN & SPEICHERN ---
+    const updateAccent = (hex, save = true) => {
         customAccentColor = hex;
+        if (save) {
+            safeLocalStorage.setItem('dq_accent_color', hex);
+        }
         const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
         const darkHex = `rgba(${Math.max(0, r-30)}, ${Math.max(0, g-30)}, ${Math.max(0, b-30)}, 1)`;
         
@@ -197,6 +209,17 @@
         document.documentElement.style.setProperty('--dq-btn-hover-gradient', `linear-gradient(135deg, ${hex}, ${darkHex})`);
     };
 
+    // --- INITIALES THEME LADEN ---
+    guiContainer.className = '';
+    guiContainer.classList.add(`theme-${activeTheme}`);
+    safeLocalStorage.setItem('dq_theme', activeTheme);
+
+    const activeOpt = document.querySelector(`.dq-theme-opt[data-theme="${activeTheme}"]`);
+    if (activeOpt) activeOpt.classList.add('active');
+    document.getElementById('dq-accent-picker').value = customAccentColor;
+    updateAccent(customAccentColor, false);
+
+    // --- INTERAKTIONEN IM DESIGN EDITOR ---
     document.querySelectorAll('.dq-theme-opt').forEach(opt => {
         opt.addEventListener('click', () => {
             document.querySelectorAll('.dq-theme-opt').forEach(o => o.classList.remove('active'));
@@ -205,21 +228,13 @@
             guiContainer.className = '';
             const theme = opt.dataset.theme;
             activeTheme = theme;
+            safeLocalStorage.setItem('dq_theme', theme);
 
-            if (theme !== 'dark') {
-                guiContainer.classList.add(`theme-${theme}`);
-            }
-
-            if (theme === 'white') {
-                updateAccent('#5865f2');
-                document.getElementById('dq-accent-picker').value = '#5865f2';
-            } else if (theme === 'glass') {
-                updateAccent('#a370f7');
-                document.getElementById('dq-accent-picker').value = '#a370f7';
-            } else {
-                updateAccent('#5865f2');
-                document.getElementById('dq-accent-picker').value = '#5865f2';
-            }
+            guiContainer.classList.add(`theme-${theme}`);
+            
+            const defaultColor = '#5865f2';
+            updateAccent(defaultColor);
+            document.getElementById('dq-accent-picker').value = defaultColor;
         });
     });
 
@@ -227,25 +242,67 @@
         updateAccent(e.target.value);
     });
 
+    // Webhook URL Eingabe speichern
+    document.getElementById('dq-webhook-input').addEventListener('input', (e) => {
+        webhookUrl = e.target.value.trim();
+        safeLocalStorage.setItem('dq_webhook_url', webhookUrl);
+    });
+
     document.getElementById('dq-paint-btn').addEventListener('click', () => {
         const editor = document.getElementById('dq-editor');
         editor.style.display = editor.style.display === 'flex' ? 'none' : 'flex';
     });
+
+    // --- WEBHOOK FUNKTION (Fix für CORS-Fehler mit 'no-cors') ---
+    async function sendWebhookNotification(questName, status = "Abgeschlossen") {
+        if (!webhookUrl) return; 
+
+        const payload = {
+            embeds: [{
+                title: "💎 Quest Harvester Update",
+                color: parseInt(customAccentColor.replace("#", ""), 16),
+                fields: [
+                    { name: "Quest Name", value: `\`${questName}\``, inline: true },
+                    { name: "Status", value: `🟢 ${status}`, inline: true },
+                    { name: "Aktion", value: `\`Bitte manuell im Discord-Inventar einlösen!\``, inline: false }
+                ],
+                footer: { text: "Aether Quest Harvester • Premium" },
+                timestamp: new Date().toISOString()
+            }]
+        };
+
+        try {
+            // "no-cors" umgeht die restriktive CORS Policy von Discord-Webhooks im Client-Kontext
+            await fetch(webhookUrl, {
+                method: "POST",
+                mode: "no-cors",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            log(`Webhook gesendet für: ${questName}`, "success");
+        } catch (e) {
+            log("Fehler beim Senden des Webhooks.", "error");
+        }
+    }
 
     const modal = document.getElementById('dq-support-modal');
     document.getElementById('dq-heart-btn').addEventListener('click', () => modal.style.display = 'flex');
     document.getElementById('dq-close-modal').addEventListener('click', () => modal.style.display = 'none');
     
     document.getElementById('dq-copy-btn').addEventListener('click', () => {
-        navigator.clipboard.writeText("0x0828dE5F5FDB4f93453d3067a90529B304df9993").then(() => {
-            const btn = document.getElementById('dq-copy-btn');
-            btn.textContent = "Kopiert! ❤️";
-            btn.style.background = "linear-gradient(135deg, #57f287, #23a55a)";
-            setTimeout(() => {
-                btn.textContent = "Adresse kopieren";
-                btn.style.background = "var(--dq-btn-gradient)";
-            }, 2500);
-        });
+        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText("0x0828dE5F5FDB4f93453d3067a90529B304df9993").then(() => {
+                const btn = document.getElementById('dq-copy-btn');
+                btn.textContent = "Kopiert! ❤️";
+                btn.style.background = "linear-gradient(135deg, #57f287, #23a55a)";
+                setTimeout(() => {
+                    btn.textContent = "Adresse kopieren";
+                    btn.style.background = "var(--dq-btn-gradient)";
+                }, 2500);
+            });
+        } else {
+            log("Zwischenablage nicht verfügbar.", "warn");
+        }
     });
 
     let isDragging = false, startX, startY, initX, initY;
@@ -267,7 +324,6 @@
 
     function log(msg, type = "info") {
         const div = document.createElement('div');
-        // Farben für Warnungen/Fehler bleiben zur Lesbarkeit erhalten, normale Logs nutzen die Akzentfarbe über CSS
         if (type === 'error') div.style.color = '#f23f43';
         else if (type === 'warn') div.style.color = '#f0b232';
         else if (type === 'success') div.style.color = '#23a55a';
@@ -357,8 +413,6 @@
         } catch (e) { return false; }
     });
 
-    const isApp = typeof DiscordNative !== "undefined";
-
     if (quests.length === 0) {
         log("Keine neuen Missionen zum Farmen gefunden!", "warn"); statusEl.textContent = "Alle verfügbaren Missionen beendet.";
     } else {
@@ -431,7 +485,6 @@
         }
     };
 
-    /* HIER GEÄNDERT: Verarbeitet jetzt alle ausgewählten Quests zeitgleich (parallel) */
     startBtn.addEventListener('click', async () => {
         if (isRunning) {
             isRunning = false;
@@ -449,13 +502,11 @@
             statusEl.textContent = "Multi-Farming läuft...";
             log(`Parallel-Farming für ${selectedChecked.length} Missionen gestartet...`, "success");
 
-            // Erstelle die parallel laufenden Versprechen für alle ausgewählten Quests
             const activePromises = selectedChecked.map(qId => {
                 const activeQuest = quests.find(q => q.id === qId);
                 return activeQuest ? startQuest(activeQuest) : Promise.resolve();
             });
 
-            // Warte, bis alle parallel gestarteten Quests beendet sind
             await Promise.all(activePromises);
 
             if (isRunning) {
@@ -504,78 +555,86 @@
                         trackedActionData: { properties: {} } 
                     });
                     if (res?.body?.completed_at) break;
-                } catch (e) { await new Promise(r => setTimeout(r, 5000)); }
+                } catch(err) {
+                    log(`[${qName}] Verbindungsfehler beim Video-Stream.`, "error");
+                    break;
+                }
             }
-            if(isRunning) { updateProg(quest.id, secReq, secReq); log(`[${qName}] Abgeschlossen!`, "success"); }
-        } 
-        else if (tName === "PLAY_ON_DESKTOP") {
-            if (!isApp) { log(`[${qName}] Desktop-App wird benötigt!`, "error"); return; }
-            try {
-                const res = await api.get({ url: `/applications/public?application_ids=${appId}`, trackedActionData: { properties: {} } });
-                const appData = res?.body?.[0]; if (!appData) return;
-                const exe = appData.executables?.find(x => x.os === "win32")?.name?.replace(">", "") ?? appData.name.replace(/[\/\:*?"<>|]/g, "");
-                const fake = { cmdLine: `C:\\Program Files\\${appData.name}\\${exe}`, exeName: exe, exePath: `c:/program files/${appData.name.toLowerCase()}/${exe}`, hidden: false, isLauncher: false, id: appId, name: appData.name, pid, pidPath: [pid], processName: appData.name, start: Date.now(), properties: {} };
+        } else {
+            const isStream = tName === "STREAM_ON_DESKTOP";
+            const appName = quest.config?.application?.name ?? "Spiel";
+            
+            const fakeG = { id: appId, name: appName, killed: false, isDiskGame: true, executable: "game.exe", cmdLine: "", pid: pid, start: Date.now() };
+            fakeGames.push(fakeG);
 
-                fakeGames.push(fake);
-                FluxDispatcher.dispatch({ type: "RUNNING_GAMES_CHANGE", removed: [], added: [fake], games: RunningGameStore.getRunningGames() });
+            let channelId = null;
+            if (isStream) {
+                const guild = GuildChannelStore.getAllGuilds();
+                const guildId = Object.keys(guild)[0];
+                if (guildId) {
+                    const channels = ChannelStore.getChannels(guildId);
+                    const voice = channels.VOCAL?.find(c => c.channel.isVoice());
+                    if (voice) channelId = voice.channel.id;
+                }
+                
+                if (!channelId) {
+                    log(`[${qName}] Für Stream-Quests musst du dich in einem Voice-Channel befinden!`, "warn");
+                    fakeGames = fakeGames.filter(g => g.pid !== pid);
+                    return;
+                }
 
-                return new Promise(resolve => {
-                    const clean = () => {
-                        fakeGames = fakeGames.filter(g => g.id !== appId);
-                        FluxDispatcher.dispatch({ type: "RUNNING_GAMES_CHANGE", removed: [fake], added: [], games: RunningGameStore.getRunningGames() });
-                        FluxDispatcher.unsubscribe("QUESTS_SEND_HEARTBEAT_SUCCESS", prog);
-                    };
-                    const prog = d => {
-                        if (!isRunning) { clean(); resolve(); return; }
-                        if (d.userStatus?.questId && d.userStatus.questId !== quest.id) return;
-                        const p = Math.floor(d.userStatus.progress.PLAY_ON_DESKTOP.value);
-                        updateProg(quest.id, p, secReq);
-                        if (p >= secReq) { updateProg(quest.id, secReq, secReq); log(`[${qName}] Abgeschlossen!`, "success"); clean(); resolve(); }
-                    };
-                    FluxDispatcher.subscribe("QUESTS_SEND_HEARTBEAT_SUCCESS", prog);
+                fakeStreams.push({
+                    pid: pid,
+                    sourceId: `window:${pid}`,
+                    sourceName: appName,
+                    applicationName: appName,
+                    channelId: channelId,
+                    soundShareEnabled: true
                 });
-            } catch (err) {}
-        } 
-        else if (tName === "STREAM_ON_DESKTOP") {
-            if (!isApp) { log(`[${qName}] Desktop-App wird benötigt!`, "error"); return; }
-            fakeStreams.push({ id: appId, pid, sourceName: "Discord Stream" });
 
-            return new Promise(resolve => {
-                const clean = () => { fakeStreams = fakeStreams.filter(s => s.id !== appId); FluxDispatcher.unsubscribe("QUESTS_SEND_HEARTBEAT_SUCCESS", strm); };
-                const strm = d => {
-                    if (!isRunning) { clean(); resolve(); return; }
-                    if (d.userStatus?.questId && d.userStatus.questId !== quest.id) return;
-                    const p = Math.floor(d.userStatus.progress.STREAM_ON_DESKTOP.value);
-                    updateProg(quest.id, p, secReq);
-                    if (p >= secReq) { updateProg(quest.id, secReq, secReq); log(`[${qName}] Abgeschlossen!`, "success"); clean(); resolve(); }
-                };
-                FluxDispatcher.subscribe("QUESTS_SEND_HEARTBEAT_SUCCESS", strm);
-            });
-        } 
-        else if (tName === "PLAY_ACTIVITY") {
-            const cId = ChannelStore?.getSortedPrivateChannels()?.[0]?.id ?? Object.values(GuildChannelStore?.getAllGuilds() ?? {}).find(x => x?.VOCAL?.length > 0)?.VOCAL[0]?.channel?.id;
-            if (!cId) { log(`[${qName}] Kein passender Sprachkanal gefunden!`, "error"); return; }
-            while (isRunning) {
-                try {
-                    const res = await api.post({ 
-                        url: `/quests/${quest.id}/heartbeat`, 
-                        body: { stream_key: `call:${cId}:1`, terminal: false },
-                        trackedActionData: { properties: {} } 
-                    });
-                    const p = res?.body?.progress?.PLAY_ACTIVITY?.value ?? 0; updateProg(quest.id, p, secReq);
-                    if (p >= secReq) { 
-                        await api.post({ 
-                            url: `/quests/${quest.id}/heartbeat`, 
-                            body: { stream_key: `call:${cId}:1`, terminal: true },
-                            trackedActionData: { properties: {} } 
-                        }); 
-                        updateProg(quest.id, secReq, secReq); 
-                        log(`[${qName}] Abgeschlossen!`, "success"); 
-                        break; 
-                    }
-                } catch (e) {}
-                await new Promise(r => setTimeout(r, 120000));
+                FluxDispatcher.dispatch({
+                    type: "STREAM_START",
+                    streamType: 1,
+                    guildId: guildId,
+                    channelId: channelId,
+                    pid: pid
+                });
             }
+
+            while (secDone < secReq && isRunning) {
+                const step = 30;
+                await new Promise(r => setTimeout(r, step * 1000));
+                if (!isRunning) break;
+
+                try {
+                    const res = await api.post({
+                        url: `/quests/${quest.id}/heartbeat`,
+                        body: { progress: secDone + step },
+                        trackedActionData: { properties: {} }
+                    });
+                    
+                    secDone = res.body?.user_status?.progress?.[tName]?.value ?? (secDone + step);
+                    updateProg(quest.id, secDone, secReq);
+
+                    if (res.body?.user_status?.completed_at) {
+                        break;
+                    }
+                } catch (e) {
+                    log(`[${qName}] Heartbeat-Fehler. Versuche es gleich erneut...`, "warn");
+                }
+            }
+
+            fakeGames = fakeGames.filter(g => g.pid !== pid);
+            if (isStream) {
+                fakeStreams = fakeStreams.filter(s => s.pid !== pid);
+                FluxDispatcher.dispatch({ type: "STREAM_STOP" });
+            }
+        }
+
+        if (secDone >= secReq) {
+            log(`[${qName}] Abgeschlossen!`, "success");
+            // Sende den Webhook (CORS-Fehler behoben)
+            sendWebhookNotification(qName, "Abgeschlossen");
         }
     }
 })();
